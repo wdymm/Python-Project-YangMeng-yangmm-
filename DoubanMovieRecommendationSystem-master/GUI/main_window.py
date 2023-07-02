@@ -1,0 +1,181 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon July 3
+@author: yangmm
+"""
+
+import sys
+
+import pandas as pd
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QHBoxLayout
+from PyQt5.QtWidgets import QHeaderView
+from PyQt5.QtWidgets import QLabel
+from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtWidgets import QTableWidget
+from PyQt5.QtWidgets import QTableWidgetItem
+from PyQt5.QtWidgets import QVBoxLayout
+from PyQt5.QtWidgets import QWidget
+
+import recommendation
+import search_window
+from movie_detailed_search import MovieDetailedSearch
+from user_center import UserCenter
+
+
+class MainWindow(QWidget):
+    def __init__(self, user):
+        super(MainWindow, self).__init__()  # 使用super函数可以实现子类使用父类的方法
+        self.setWindowTitle("Movie recommendation based on Douban")
+        self.setWindowIcon(QIcon('../Data/douban.jpg'))  # 设置窗口图标
+        self.resize(1400, 800)
+
+        self.user_df = pd.read_csv('../Data/douban_users.csv')
+        self.user_df = self.user_df.iloc[:, [1, 2, 3]]
+        self.movies_df = pd.read_csv('../Data/douban_movies.csv',encoding='utf-8')
+        self.movies_df = self.movies_df.iloc[:, [0, 1, 6, 15, 16]]
+        self.movies_df = self.movies_df.drop_duplicates(subset='url')
+        self.movies_df = self.movies_df.rename(columns={'Unnamed: 0': 'Movie_ID'})
+        self.user = user
+        self.user_movie_num = len(list(self.user_df[self.user_df['user_id'] == user].movie_id))
+        self.user_movie_num_show = str(self.user_movie_num)
+
+        self.USER_PWD = dict()
+        self.USER_Label = dict()
+        f = open('../Data/users_info_en.csv', 'a+', encoding='utf-8')
+        f.seek(0)  # 文件指针指向开头
+        for line in f:
+            self.USER_PWD[line.split(',')[0]] = line.split(',')[1].strip()  # 存入用户名密码
+            try:
+                self.USER_Label[line.split(',')[0]] = line.split(',')[2].strip()  # 存入用户标签
+            except:
+                self.USER_Label[line.split(',')[0]] = None
+        f.close()
+
+        self.user_label = self.USER_Label[user]
+        self.welcome_label = QLabel(self)
+
+        self.welcome_label.setText("<h1>Welcome! " + self.user + "</h1>")
+        self.recommend_label = QLabel("<h1>Personal recommendations for you: </h1>", self)
+
+        self.recommend_table = QTableWidget(self)
+        self.hot_movies_label = QLabel("<h1>Hot ranking list: </h1>", self)
+        self.hot_movies_table = QTableWidget(self)
+
+        self.user_center = QPushButton("User profile", self)
+        self.user_center.clicked.connect(lambda: self.show_user_center(user, self.user_movie_num_show, self.user_label))
+        self.movie_detailed_button = QPushButton("Movie detail page", self)
+        self.movie_detailed_button.clicked.connect(self.movie_detailed)
+        self.search_button = QPushButton("Movie search", self)
+        self.search_button.clicked.connect(self.search)
+        self.hot_rec_movies = recommendation.rec_hot_movies()  # 热门电影
+        self.rec_movies = recommendation.find_user_like(self.user)  # 推荐电影
+
+        self.v1_layout = QVBoxLayout()
+        self.v2_layout = QVBoxLayout()
+        self.h1_layout = QHBoxLayout()
+        self.h2_layout = QHBoxLayout()
+        self.h_layout = QHBoxLayout()
+
+        self.h1_layout.addWidget(self.welcome_label)
+        self.h1_layout.addWidget(self.user_center)
+        self.v1_layout.addLayout(self.h1_layout)
+        self.v1_layout.addWidget(self.recommend_label)
+        self.v1_layout.addWidget(self.recommend_table)
+
+        self.h2_layout.addWidget(self.hot_movies_label)
+        self.h2_layout.addWidget(self.movie_detailed_button)
+        self.h2_layout.addWidget(self.search_button)
+        self.v2_layout.addLayout(self.h2_layout)
+        self.v2_layout.addWidget(self.hot_movies_table)
+
+        self.h_layout.addLayout(self.v1_layout)
+        self.h_layout.addLayout(self.v2_layout)
+
+        self.setLayout(self.h_layout)
+
+        self.rec_movies_table_init()
+        self.hot_movies_table_init()
+        self.set_hot_movie_table(self.hot_rec_movies)
+        self.set_rec_movies_table(self.rec_movies)
+
+    def rec_movies_table_init(self):
+        self.recommend_table.setColumnCount(5)
+        self.recommend_table.setHorizontalHeaderLabels(['Name', 'Actor', 'Genre', 'Rating', 'Link'])
+        self.recommend_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.recommend_table.setRowCount(0)
+
+    def hot_movies_table_init(self):
+        self.hot_movies_table.setColumnCount(6)
+        self.hot_movies_table.setHorizontalHeaderLabels(
+            ['Name', 'Actor', 'Rating', 'Genre', 'Date', 'Link'])
+        self.hot_movies_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.hot_movies_table.setRowCount(0)
+
+    def set_rec_movies_table(self, rec_movies):
+        row = self.recommend_table.rowCount()
+        try:
+            for i in range(len(self.rec_movies)):
+                self.recommend_table.insertRow(row)
+                self.name = "《" + self.rec_movies[i][0] + "》"
+                if pd.isna(self.rec_movies[i][1]):
+                    self.actors = "None"
+                else:
+                    self.actors = self.rec_movies[i][1]
+                self.style = self.rec_movies[i][2]
+                self.rating = str(self.rec_movies[i][3])
+                self.url = self.rec_movies[i][4]
+
+                self.recommend_table.setItem(row, 0, QTableWidgetItem(self.name))
+                self.recommend_table.setItem(row, 1, QTableWidgetItem(self.actors))
+                self.recommend_table.setItem(row, 2, QTableWidgetItem(self.style))
+                self.recommend_table.setItem(row, 3, QTableWidgetItem(self.rating))
+                self.recommend_table.setItem(row, 4, QTableWidgetItem(self.url))
+        except:
+            pass
+
+    def set_hot_movie_table(self, hot_rec_movies):
+        row = self.hot_movies_table.rowCount()
+
+        for i in range(len(self.hot_rec_movies)):
+            self.hot_movies_table.insertRow(row)
+            self.hot_movies_name = "《" + self.hot_rec_movies[i][0] + "》"
+            self.hot_movies_actors = self.hot_rec_movies[i][1]
+            self.hot_movies_rating = str(self.hot_rec_movies[i][2])
+            if pd.isna(self.hot_rec_movies[i][4]) and pd.isna(self.hot_rec_movies[i][5]):
+                self.hot_movies_style = self.hot_rec_movies[i][3]
+            elif pd.isna(self.hot_rec_movies[i][5]):
+                self.hot_movies_style = self.hot_rec_movies[i][3] + ' ' + self.hot_rec_movies[i][4]
+            else:
+                self.hot_movies_style = self.hot_rec_movies[i][3] + ' ' + self.hot_rec_movies[i][4] + ' ' + self.hot_rec_movies[i][5]
+
+            self.hot_movies_date = str(int(self.hot_rec_movies[i][6]))
+            self.hot_movies_url = self.hot_rec_movies[i][7]
+
+            self.hot_movies_table.setItem(row, 0, QTableWidgetItem(self.hot_movies_name))
+            self.hot_movies_table.setItem(row, 1, QTableWidgetItem(self.hot_movies_actors))
+            self.hot_movies_table.setItem(row, 2, QTableWidgetItem(self.hot_movies_rating))
+            self.hot_movies_table.setItem(row, 3, QTableWidgetItem(self.hot_movies_style))
+            self.hot_movies_table.setItem(row, 4, QTableWidgetItem(self.hot_movies_date))
+            self.hot_movies_table.setItem(row, 5, QTableWidgetItem(self.hot_movies_url))
+
+    def movie_detailed(self):
+        self.movie_detailed_fun = MovieDetailedSearch()
+        self.movie_detailed_fun.show()
+
+    # 搜索功能
+    def search(self):
+        self.search_func = search_window.SearchWindow()
+        self.search_func.show()
+
+    def show_user_center(self, user, num, label):
+        self.show_user = UserCenter(user, num, label)
+        self.show_user.show()
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    main = MainWindow("yangmm")
+    main.show()
+    sys.exit(app.exec_())
